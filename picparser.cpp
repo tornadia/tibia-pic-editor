@@ -3,19 +3,20 @@
 #include <iostream>
 #include <png.h>
 #include <sstream>
+#include <cstring>
 // #include <boost/filesystem/operations.hpp>
 #include <sys/stat.h>
 #include <unistd.h>
 //#include <boost.h>
 using namespace std;
 
-//#define DEBUG
+#define DEBUG
 
 struct tpixel {
   unsigned char red;
   unsigned char green;
   unsigned char blue;
-  bool alpha;
+  unsigned char alpha;
 };
 
 struct tsprite {
@@ -87,9 +88,7 @@ int write_png_image(FILE *pngfile, timage *image) {
       ptr[0] = image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].red;
       ptr[1] = image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].green;
       ptr[2] = image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].blue;
-      ptr[3] = (image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].alpha)
-                   ? 0x00
-                   : 0xff;
+      ptr[3] = image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].alpha;
     }
   }
 
@@ -120,44 +119,57 @@ int write_png_image(FILE *pngfile, timage *image) {
 }
 
 int read_sprite(ifstream *pic, int sprite_adr, tsprite *sprite) {
+#ifdef DEBUG
+      cout << "Reading sector data. " << endl;
+#endif
   int adr;
 
-  unsigned short int size, alpha, pixel_num;
+  unsigned short int size, empty_pixels, pixel_num;
 
   adr = pic->tellg();
 
   pic->seekg(sprite_adr);
 
   pic->read((char *)&size, sizeof(size));
-
+#ifdef DEBUG
+      cout << "Reading size: " << size << endl;
+#endif
   int byte_count = 0;
   int pixel_count = 0;
   while (byte_count < size) {
-    pic->read((char *)&alpha, sizeof(alpha));
-    pixel_count += alpha;
+    pic->read((char *)&empty_pixels, sizeof(empty_pixels));
+    pixel_count += empty_pixels;
     pic->read((char *)&pixel_num, sizeof(pixel_num));
+#ifdef DEBUG
+      cout << "Reading empty pixels: " << empty_pixels << endl;
+      cout << "Reading pixel num: " << pixel_num << endl;
+#endif
 
     byte_count += 4;
-    alpha = pixel_count + pixel_num;
+    empty_pixels = pixel_count + pixel_num;
 
-    while (pixel_count < alpha) {
-      unsigned char red, green, blue;
+    while (pixel_count < empty_pixels) {
+      unsigned char red, green, blue, alpha;
 
       pic->read((char *)&red, sizeof(red));
       pic->read((char *)&green, sizeof(green));
       pic->read((char *)&blue, sizeof(blue));
+      pic->read((char *)&alpha, sizeof(alpha));
 
       sprite->pixel[pixel_count / 32][pixel_count % 32].red = red;
       sprite->pixel[pixel_count / 32][pixel_count % 32].green = green;
       sprite->pixel[pixel_count / 32][pixel_count % 32].blue = blue;
-      sprite->pixel[pixel_count / 32][pixel_count % 32].alpha = false;
+      sprite->pixel[pixel_count / 32][pixel_count % 32].alpha = alpha;
+#ifdef DEBUG
+      // cout << "Reading RGB: " << red << green << blue << alpha << endl;
+#endif
 
       // sprite->pixel[0][pixel_count].red = red;
       // sprite->pixel[0][pixel_count].green = green;
       // sprite->pixel[0][pixel_count].blue = blue;
       // sprite->pixel[0][pixel_count].alpha = false;
 
-      byte_count += 3;
+      byte_count += 4;
       pixel_count++;
     }
   }
@@ -208,6 +220,11 @@ int pic_extract(ifstream *pic) {
       // Read how many sprites this image has.
       pic->read((char *)&(image[a].width), sizeof(image[0].width));
       pic->read((char *)&(image[a].height), sizeof(image[0].height));
+#ifdef DEBUG
+      cout << "Image N. " << a << endl;
+      cout << "Width: " << (char **)image[a].width << endl;
+      cout << "Height: " << (char **)image[a].height << endl;
+#endif
 
       // I have no ideia what this next 3 bytes are for... so I will just save
       // them for later use
@@ -217,6 +234,9 @@ int pic_extract(ifstream *pic) {
       data.write((char *)&(image[a].unk0), sizeof(image[0].unk0));
       data.write((char *)&(image[a].unk1), sizeof(image[0].unk1));
       data.write((char *)&(image[a].unk2), sizeof(image[0].unk2));
+#ifdef DEBUG
+      cout << "Read empty bytes. " << endl;
+#endif
 
       image[a].sprite = new tsprite *[image[a].height];
       for (int b = 0; b < image[a].height; b++) {
@@ -224,6 +244,9 @@ int pic_extract(ifstream *pic) {
         for (int c = 0; c < image[a].width; c++) {
           // Now we read the address where the sprite is stored.
           pic->read((char *)&sprite_adr, sizeof(sprite_adr));
+#ifdef DEBUG
+      cout << "Read image address. " << sprite_adr << endl;
+#endif
 
           image[a].sprite[b][c].pixel = new tpixel *[32];
           for (int d = 0; d < 32; d++) {
@@ -234,7 +257,7 @@ int pic_extract(ifstream *pic) {
               image[a].sprite[b][c].pixel[d][e].red = 0;
               image[a].sprite[b][c].pixel[d][e].green = 0;
               image[a].sprite[b][c].pixel[d][e].blue = 0;
-              image[a].sprite[b][c].pixel[d][e].alpha = true;
+              image[a].sprite[b][c].pixel[d][e].alpha = 0;
             }
           }
 
@@ -343,7 +366,7 @@ int read_png_file(const char *file_name, timage *image) {
     exit(1);
   }
 #ifdef DEBUG
-  cout << "Color Type: " << (int)(info_ptr->color_type) << endl;
+  cout << "Color Type: " << (int)(png_get_color_type(png_ptr, info_ptr)) << endl;
   cout << "Bit Depth: " << (int)(png_get_bit_depth(png_ptr, info_ptr)) << endl;
 #endif
 
@@ -406,8 +429,7 @@ int read_png_file(const char *file_name, timage *image) {
       image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].red = ptr[0];
       image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].green = ptr[1];
       image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].blue = ptr[2];
-      image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].alpha =
-          (ptr[3] < 127) ? true : false;
+      image->sprite[y / 32][x / 32].pixel[y % 32][x % 32].alpha = ptr[3];
       // image->sprite[y/32][x/32].pixel[y%32][x%32].alpha = false;
     }
   }
@@ -460,7 +482,7 @@ int write_sprite(ofstream *pic, unsigned int adress, tsprite *sprite) {
   while (spr_count < 1024) {
     i = 0;
     while ((spr_count < 1024) &&
-           (sprite->pixel[spr_count / 32][spr_count % 32].alpha)) {
+           (sprite->pixel[spr_count / 32][spr_count % 32].alpha != 0xFF)) {
       spr_count++; // SprCount := SprCount + 1;
       i++;         // Count := Count + 1;
     }
@@ -480,13 +502,15 @@ int write_sprite(ofstream *pic, unsigned int adress, tsprite *sprite) {
 
     i = 0;
     while ((spr_count < 1024) &&
-           (!(sprite->pixel[spr_count / 32][spr_count % 32].alpha))) {
+           (sprite->pixel[spr_count / 32][spr_count % 32].alpha != 0x00)) {
       pic->write((char *)&(sprite->pixel[spr_count / 32][spr_count % 32].red),
                  sizeof(sprite->pixel[spr_count / 32][spr_count % 32].red));
       pic->write((char *)&(sprite->pixel[spr_count / 32][spr_count % 32].green),
                  sizeof(sprite->pixel[spr_count / 32][spr_count % 32].green));
       pic->write((char *)&(sprite->pixel[spr_count / 32][spr_count % 32].blue),
                  sizeof(sprite->pixel[spr_count / 32][spr_count % 32].blue));
+      pic->write((char *)&(sprite->pixel[spr_count / 32][spr_count % 32].alpha),
+                 sizeof(sprite->pixel[spr_count / 32][spr_count % 32].alpha));
 
       i++;
       spr_count++;
@@ -500,8 +524,8 @@ int write_sprite(ofstream *pic, unsigned int adress, tsprite *sprite) {
     pic->write((char *)&i, sizeof(i));
 
     backup_adr = pic->tellp();
-    backup_adr += i * 3;
-    pic->seekp(i * 3, ios::cur);
+    backup_adr += i * 4;
+    pic->seekp(i * 4, ios::cur);
   }
 
   pic->seekp(adress);
